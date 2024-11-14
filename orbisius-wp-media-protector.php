@@ -19,7 +19,7 @@ Add the following lines to the .htaccess file (usually in the root WP folder).
     RewriteEngine On
     RewriteCond %{REQUEST_URI} ^(.*?/?)wp-content/uploads/.* [NC]
     RewriteCond %{REQUEST_URI} !orbisius_media_protector [NC]
-	RewriteRule . %1/?orbisius_media_protector=%{REQUEST_URI} [L,QSA]
+    RewriteRule . %1/?orbisius_media_protector=%{REQUEST_URI} [L,QSA]
 </IfModule>
 
  * @todo: Ideas for improvement
@@ -36,20 +36,29 @@ class orbisius_wp_media_uploads_protector {
     function protect_uploads() {
         if ( ! empty( $_REQUEST['orbisius_media_protector'] ) ) {
             $req_file = $_REQUEST['orbisius_media_protector'];
-			$req_file = strip_tags($req_file); // sanitize
-			$req_file = trim($req_file);
-			$req_file = preg_replace('#\?.*#si', '', $req_file); // rm any request params
-			$req_file = substr($req_file, 0, 255);
+            $req_file = strip_tags($req_file); // sanitize
+            $req_file = trim($req_file);
+            $req_file = preg_replace('#\?.*#si', '', $req_file); // rm any request params
+            $req_file = substr($req_file, 0, 255);
+
+            // Define the bypass token from WordPress config (add this to your wp-config.php)
+            $bypass_token = defined('ORBISIUS_MEDIA_PROTECTOR_BYPASS_HEADER') ? ORBISIUS_MEDIA_PROTECTOR_BYPASS_HEADER : '';
 
             if ( ! $this->check_file( $req_file ) ) {
                 wp_die( "Invalid request.", 'Error' );
+            }
+
+            if ( !empty($bypass_token) && isset($_SERVER['HTTP_X_ORBIUS_MEDIA_PROTECTOR_BYPASS']) && $_SERVER['HTTP_X_ORBIUS_MEDIA_PROTECTOR_BYPASS'] !== $bypass_token ) {
+                wp_die( "Invalid bypass header.", 'Error' );
             }
             
             if ( headers_sent() ) {
                 wp_die( "Cannot deliver the file. Headers have already been sent.", 'Error' );
             }
-            
-            if ( is_user_logged_in() ) {
+
+            if ( is_user_logged_in() ||
+                 !empty($bypass_token) && isset($_SERVER['HTTP_X_ORBIUS_MEDIA_PROTECTOR_BYPASS']) && $_SERVER['HTTP_X_ORBIUS_MEDIA_PROTECTOR_BYPASS'] === $bypass_token
+            ) {
                 // Don't cache the file because the user may log out and try to access it again.
                 // http://stackoverflow.com/questions/13640109/how-to-prevent-browser-cache-for-php-site
                 header( "Cache-Control: no-store, no-cache, must-revalidate, max-age=0" );
@@ -89,13 +98,13 @@ class orbisius_wp_media_uploads_protector {
                     $fp = fopen( $file, 'rb' );
 
                     if (!empty($fp)) {
-	                    flock($fp, LOCK_SH);
+                        flock($fp, LOCK_SH);
                         fpassthru($fp);
-	                    flock($fp, LOCK_UN);
-	                    fclose($fp);
+                        flock($fp, LOCK_UN);
+                        fclose($fp);
                     } else {
-	                    status_header( 404 );
-	                    echo "Cannot open file.";
+                        status_header( 404 );
+                        echo "Cannot open file.";
                     }
                 } else {
                     status_header( 404 );
@@ -125,7 +134,7 @@ class orbisius_wp_media_uploads_protector {
         
         if (       ( strpos( $req_file, '..' ) === false ) 
                 && ( strpos( $req_file, '/wp-content/uploads/' ) !== false )
-                && preg_match( '#^/wp-content/uploads/[\s\w\-\/\\\]+\.([a-z\d]{2,5})$#si', $req_file ) ) {
+                && preg_match( '#^/wp-content/uploads/[\.\s\w\-\/\\\]+\.([a-z\d]{2,5})$#si', $req_file ) ) {
             $ok = 1;
         }
                 
